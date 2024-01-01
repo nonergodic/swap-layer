@@ -9,7 +9,7 @@ import { implementationState } from "./Eip1967Implementation.sol";
 contract Proxy {
   error ProxyConstructionFailed(bytes revertData);
 
-  constructor(address logic, bytes calldata data) payable {
+  constructor(address logic, bytes memory data) payable {
     implementationState().implementation = logic;
     
     //We can't externally call ourselves and use msg.sender to prevent unauhorized execution of

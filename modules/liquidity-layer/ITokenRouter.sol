@@ -25,6 +25,9 @@ struct RedeemedFill {
 }
 
 interface ITokenRouter {
+    function orderToken() external view returns (address);
+    function wormholeCctp() external view returns (address);
+
     /**
      * @notice Redeems a `Fill` or `FastFill` Wormhole message from a registered router
      * (or the `MatchingEngine` in the case of a `FastFill`). The `token` and `message`

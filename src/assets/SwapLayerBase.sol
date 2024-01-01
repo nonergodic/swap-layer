@@ -7,6 +7,7 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { IPermit2 } from "permit2/IPermit2.sol";
 import { ISwapRouter } from "uniswap/ISwapRouter.sol";
 import { IWormhole } from "wormhole/IWormhole.sol";
+import { ICircleIntegration } from "wormhole/ICircleIntegration.sol";
 import { IWETH } from "wormhole/IWETH.sol";
 import { ITokenRouter } from "liquidity-layer/ITokenRouter.sol";
 
@@ -49,20 +50,17 @@ abstract contract SwapLayerBase {
   uint16       internal immutable _chainId;
 
   constructor(
-    IWormhole wormhole,
-    IERC20 usdc,
-    IWETH weth,
-    IPermit2 permit2,
-    ISwapRouter uniswapV3Router,
+    IPermit2     permit2,
+    ISwapRouter  uniV3Router,
     ITokenRouter liquidityLayer
   ) {
-    _wormhole = wormhole;
-    _usdc = usdc;
-    _weth = weth;
-    _permit2 = permit2;
-    _uniV3Router = uniswapV3Router;
+    _wormhole       = ICircleIntegration(liquidityLayer.wormholeCctp()).wormhole();
+    _usdc           = IERC20(liquidityLayer.orderToken());
+    _weth           = IWETH(uniV3Router.WETH9());
+    _permit2        = permit2;
+    _uniV3Router    = uniV3Router;
     _liquidityLayer = liquidityLayer;
-    _chainId = wormhole.chainId();
+    _chainId        = _wormhole.chainId();
   }
 
   function _getEndpoint(uint16 chainId) internal view returns (bytes32) {

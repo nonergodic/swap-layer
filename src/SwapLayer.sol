@@ -6,8 +6,6 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import { IPermit2 } from "permit2/IPermit2.sol";
 import { ISwapRouter } from "uniswap/ISwapRouter.sol";
-import { IWormhole } from "wormhole/IWormhole.sol";
-import { IWETH } from "wormhole/IWETH.sol";
 import { ITokenRouter } from "liquidity-layer/ITokenRouter.sol";
 
 import { BytesParsing } from "wormhole/WormholeBytesParsing.sol";
@@ -26,13 +24,10 @@ contract SwapLayer is
 
   //constructor of the logic contract setting immutables
   constructor(
-    IWormhole wormhole,
-    IERC20 usdc,
-    IWETH weth,
     IPermit2 permit2,
     ISwapRouter uniswapV3Router,
     ITokenRouter liquidityLayer
-  ) SwapLayerBase(wormhole, usdc, weth, permit2, uniswapV3Router, liquidityLayer) {}
+  ) SwapLayerBase(permit2, uniswapV3Router, liquidityLayer) {}
 
   function _proxyConstructor(bytes calldata data_) internal override {
     bytes memory data = data_;
