@@ -4,6 +4,8 @@ pragma solidity ^0.8.23;
 
 type GasDropoff is uint32;
 library GasDropoffLib {
+  uint internal constant BYTE_SIZE = 4;
+  
   error ExceedsMax(uint256 val);
 
   uint private constant GAS_DROPOFF_UNIT = 1e12 wei; //in microether (i.e. 1e-6 eth)

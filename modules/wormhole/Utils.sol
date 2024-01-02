@@ -2,14 +2,17 @@
 
 pragma solidity ^0.8.19;
 
-error AddressOverflow(bytes32 addr);
+error NotAnEvmAddress(bytes32 addr);
 
-function fromUniversalAddress(bytes32 universalAddr) pure returns (address converted) {
-    if (bytes12(universalAddr) != 0) {
-        revert AddressOverflow(universalAddr);
-    }
+function toUniversalAddress(address addr) pure returns (bytes32) {
+  return bytes32(uint256(uint160(addr)));
+}
+
+function fromUniversalAddress(bytes32 universalAddr) pure returns (address addr) {
+    if (bytes12(universalAddr) != 0)
+        revert NotAnEvmAddress(universalAddr);
 
     assembly ("memory-safe") {
-        converted := universalAddr
+        addr := universalAddr
     }
 }

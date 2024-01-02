@@ -18,7 +18,6 @@ contract TokenRouterImplementation is TokenRouterAdmin, PlaceMarketOrder, Redeem
 
     function initialize(address owner, address ownerAssistant) external {
         require(owner != address(0), "Invalid owner");
-        require(ownerAssistant != address(0), "Invalid owner assistant");
         require(getOwnerState().owner == address(0), "Already initialized");
 
         getOwnerState().owner = owner;

@@ -6,9 +6,11 @@ import { BytesParsing } from "wormhole/WormholeBytesParsing.sol";
 
 import { InvalidChainId, SwapLayerGovernance } from "./SwapLayerGovernance.sol";
 import { Percentage, PercentageLib } from "./Percentage.sol";
+import { GasPrice, GasPriceLib } from "./GasPrice.sol";
 import { GasDropoff, GasDropoffLib } from "./GasDropoff.sol";
 
 using PercentageLib for Percentage;
+using GasPriceLib for GasPrice;
 using GasDropoffLib for GasDropoff;
 
 // interface IUniswapV3Pool {
@@ -23,23 +25,18 @@ using GasDropoffLib for GasDropoff;
 //   );
 // }
 
-uint constant PERCENTAGE_SIZE = 16;
-uint constant GAS_PRICE_UNIT = 1e6; //in mwei/gas (mwei = 1e6 wei)
-uint constant GAS_PRICE_TIMES_GAS_TOKEN_PRICE_TO_USDC_DIVISOR   = 1 ether / GAS_PRICE_UNIT;
-uint constant GAS_DROPOFF_TIMES_GAS_TOKEN_PRICE_TO_USDC_DIVISOR = 1 ether;
-
 //store everything in one slot and make reads and writes cheap (no struct in memory nonsense)
 type FeeParams is uint256;
 library FeeParamsLib {
-  // layout (low to high bits - i.e. in packed struct order):
-  //  4 bytes baseFee                 - in atomic usdc (i.e. 6 decimals -> 1e6 = 1 usdc)
-  //  4 bytes gasPrice                - in GAS_PRICE_UNIT
-  //  2 bytes gasPriceMargin          - percentage (see above)
+  // layout (low to high bits - i.e. in packed struct order) - unit:
+  //  4 bytes baseFee                 - atomic usdc (i.e. 6 decimals -> 1e6 = 1 usdc)
+  //  4 bytes gasPrice                - wei/gas (see GasPrice)
+  //  2 bytes gasPriceMargin          - scalar (see Percentage)
   //  4 bytes gasPriceTimestamp       - unix timestamp (seconds, like block.timestamp)
-  //  2 bytes gasPriceUpdateThreshold - percentage (see above)
-  //  4 bytes maxGasDropoff           - in GAS_DROPOFF_UNIT
-  //  4 bytes gasDropoffMargin        - percentage (see above)
-  // 10 bytes gasTokenPrice           - in atomic usdc/human gas token (e.g. 1e9 = 1000 usdc/eth)
+  //  2 bytes gasPriceUpdateThreshold - scalar (see Percentage)
+  //  4 bytes maxGasDropoff           - wei (see GasDropoff)
+  //  4 bytes gasDropoffMargin        - scalar (see Percentage)
+  // 10 bytes gasTokenPrice           - atomic usdc/ether (e.g. 1e9 = 1000 usdc/eth)
   //  // 1 byte mode                     - 0: fixed, 1: uniswap
   //  // 9 bytes modeData
   //
@@ -52,13 +49,13 @@ library FeeParamsLib {
   uint256 private constant BASE_FEE_WRITE_MASK =
     ~(((1 << BASE_FEE_SIZE) - 1) << BASE_FEE_OFFSET);
 
-  uint256 private constant GAS_PRICE_SIZE = 32;
+  uint256 private constant GAS_PRICE_SIZE = GasPriceLib.BYTE_SIZE * 8;
   uint256 private constant GAS_PRICE_OFFSET =
     BASE_FEE_OFFSET + BASE_FEE_SIZE;
   uint256 private constant GAS_PRICE_WRITE_MASK =
     ~(((1 << GAS_PRICE_SIZE) - 1) << GAS_PRICE_OFFSET);
   
-  uint256 private constant GAS_PRICE_MARGIN_SIZE = PERCENTAGE_SIZE;
+  uint256 private constant GAS_PRICE_MARGIN_SIZE = PercentageLib.BYTE_SIZE * 8;
   uint256 private constant GAS_PRICE_MARGIN_OFFSET =
     GAS_PRICE_OFFSET + GAS_PRICE_SIZE;
   uint256 private constant GAS_PRICE_MARGIN_WRITE_MASK =
@@ -70,19 +67,19 @@ library FeeParamsLib {
   uint256 private constant GAS_PRICE_TIMESTAMP_WRITE_MASK =
     ~(((1 << GAS_PRICE_TIMESTAMP_SIZE) - 1) << GAS_PRICE_TIMESTAMP_OFFSET);
   
-  uint256 private constant GAS_PRICE_UPDATE_THRESHOLD_SIZE = PERCENTAGE_SIZE;
+  uint256 private constant GAS_PRICE_UPDATE_THRESHOLD_SIZE = PercentageLib.BYTE_SIZE * 8;
   uint256 private constant GAS_PRICE_UPDATE_THRESHOLD_OFFSET =
     GAS_PRICE_TIMESTAMP_OFFSET + GAS_PRICE_TIMESTAMP_SIZE;
   uint256 private constant GAS_PRICE_UPDATE_THRESHOLD_WRITE_MASK =
     ~(((1 << GAS_PRICE_UPDATE_THRESHOLD_SIZE) - 1) << GAS_PRICE_UPDATE_THRESHOLD_OFFSET);
   
-  uint256 private constant MAX_GAS_DROPOFF_SIZE = 32;
+  uint256 private constant MAX_GAS_DROPOFF_SIZE = GasDropoffLib.BYTE_SIZE * 8;
   uint256 private constant MAX_GAS_DROPOFF_OFFSET =
     GAS_PRICE_UPDATE_THRESHOLD_OFFSET + GAS_PRICE_UPDATE_THRESHOLD_SIZE;
   uint256 private constant MAX_GAS_DROPOFF_WRITE_MASK =
     ~(((1 << MAX_GAS_DROPOFF_SIZE) - 1) << MAX_GAS_DROPOFF_OFFSET);
   
-  uint256 private constant GAS_DROPOFF_MARGIN_SIZE = PERCENTAGE_SIZE;
+  uint256 private constant GAS_DROPOFF_MARGIN_SIZE = PercentageLib.BYTE_SIZE * 8;
   uint256 private constant GAS_DROPOFF_MARGIN_OFFSET =
     MAX_GAS_DROPOFF_OFFSET + MAX_GAS_DROPOFF_SIZE;
   uint256 private constant GAS_DROPOFF_MARGIN_WRITE_MASK =
@@ -94,7 +91,7 @@ library FeeParamsLib {
   uint256 private constant GAS_TOKEN_PRICE_WRITE_MASK =
     ~(((1 << GAS_TOKEN_PRICE_SIZE) - 1) << GAS_TOKEN_PRICE_OFFSET);
 
-  function checkedWrap(uint256 value) internal pure returns (FeeParams) {
+  function checkedWrap(uint256 value) internal pure returns (FeeParams) { unchecked {
     FeeParams params = FeeParams.wrap(value);
 
     //check percentage fields (they are the only ones that have a constraint)
@@ -103,119 +100,122 @@ library FeeParamsLib {
     PercentageLib.checkedWrap(Percentage.unwrap(gasDropoffMargin(params)));
 
     return params;
-  }
+  }}
 
-  function baseFee(FeeParams params) internal pure returns (uint) {
+  function baseFee(FeeParams params) internal pure returns (uint) { unchecked {
     return uint32(FeeParams.unwrap(params) >> BASE_FEE_OFFSET);
-  }
+  }}
 
   function baseFee(
     FeeParams params,
     uint32 baseFee_
-  ) internal pure returns (FeeParams) {
+  ) internal pure returns (FeeParams) { unchecked {
     return FeeParams.wrap(
       (FeeParams.unwrap(params) & BASE_FEE_WRITE_MASK) |
       (uint256(baseFee_) << BASE_FEE_OFFSET)
     );
-  }
+  }}
 
-  function gasPrice(FeeParams params) internal pure returns (uint) {
-    return uint32(FeeParams.unwrap(params) >> GAS_PRICE_OFFSET);
-  }
+  function gasPrice(FeeParams params) internal pure returns (GasPrice) { unchecked {
+    
+    return GasPrice.wrap(uint32(FeeParams.unwrap(params) >> GAS_PRICE_OFFSET));
+  }}
 
   function gasPrice(
     FeeParams params,
-    uint32 gasPrice_
-  ) internal pure returns (FeeParams) {
+    GasPrice gasPrice_
+  ) internal pure returns (FeeParams) { unchecked {
     return FeeParams.wrap(
       (FeeParams.unwrap(params) & GAS_PRICE_WRITE_MASK) |
-      (uint256(gasPrice_) << GAS_PRICE_OFFSET)
+      (uint256(GasPrice.unwrap(gasPrice_)) << GAS_PRICE_OFFSET)
     );
-  }
+  }}
 
-  function gasPriceMargin(FeeParams params) internal pure returns (Percentage) {
+  function gasPriceMargin(FeeParams params) internal pure returns (Percentage) { unchecked {
     return Percentage.wrap(uint16(FeeParams.unwrap(params) >> GAS_PRICE_MARGIN_OFFSET));
-  }
+  }}
 
   function gasPriceMargin(
     FeeParams params,
     Percentage gasPriceMargin_
-  ) internal pure returns (FeeParams) {
+  ) internal pure returns (FeeParams) { unchecked {
     return FeeParams.wrap(
       (FeeParams.unwrap(params) & GAS_PRICE_MARGIN_WRITE_MASK) |
       (uint256(Percentage.unwrap(gasPriceMargin_)) << GAS_PRICE_MARGIN_OFFSET)
     );
-  }
+  }}
 
-  function gasPriceTimestamp(FeeParams params) internal pure returns (uint32) {
+  function gasPriceTimestamp(FeeParams params) internal pure returns (uint32) { unchecked {
     return uint32(FeeParams.unwrap(params) >> GAS_PRICE_TIMESTAMP_OFFSET);
-  }
+  }}
 
   function gasPriceTimestamp(
     FeeParams params,
     uint32 gasPriceTimestamp_
-  ) internal pure returns (FeeParams) {
+  ) internal pure returns (FeeParams) { unchecked {
     return FeeParams.wrap(
       (FeeParams.unwrap(params) & GAS_PRICE_TIMESTAMP_WRITE_MASK) |
       (uint256(gasPriceTimestamp_) << GAS_PRICE_TIMESTAMP_OFFSET)
     );
-  }
+  }}
 
-  function gasPriceUpdateThreshold(FeeParams params) internal pure returns (Percentage) {
+  function gasPriceUpdateThreshold(
+    FeeParams params
+  ) internal pure returns (Percentage) { unchecked {
     return Percentage.wrap(uint16(FeeParams.unwrap(params) >> GAS_PRICE_UPDATE_THRESHOLD_OFFSET));
-  }
+  }}
 
   function gasPriceUpdateThreshold(
     FeeParams params,
     Percentage gasPriceUpdateThreshold_
-  ) internal pure returns (FeeParams) {
+  ) internal pure returns (FeeParams) { unchecked {
     return FeeParams.wrap(
       (FeeParams.unwrap(params) & GAS_PRICE_UPDATE_THRESHOLD_WRITE_MASK) |
       (uint256(Percentage.unwrap(gasPriceUpdateThreshold_)) << GAS_PRICE_UPDATE_THRESHOLD_OFFSET)
     );
-  }
+  }}
 
-  function maxGasDropoff(FeeParams params) internal pure returns (GasDropoff) {
+  function maxGasDropoff(FeeParams params) internal pure returns (GasDropoff) { unchecked {
     return GasDropoff.wrap(uint32(FeeParams.unwrap(params) >> MAX_GAS_DROPOFF_OFFSET));
-  }
+  }}
 
   function maxGasDropoff(
     FeeParams params,
     GasDropoff maxGasDropoff_
-  ) internal pure returns (FeeParams) {
+  ) internal pure returns (FeeParams) { unchecked {
     return FeeParams.wrap(
       (FeeParams.unwrap(params) & MAX_GAS_DROPOFF_WRITE_MASK) |
       (uint256(GasDropoff.unwrap(maxGasDropoff_)) << MAX_GAS_DROPOFF_OFFSET)
     );
-  }
+  }}
 
-  function gasDropoffMargin(FeeParams params) internal pure returns (Percentage) {
+  function gasDropoffMargin(FeeParams params) internal pure returns (Percentage) { unchecked {
     return Percentage.wrap(uint16(FeeParams.unwrap(params) >> GAS_DROPOFF_MARGIN_OFFSET));
-  }
+  }}
 
   function gasDropoffMargin(
     FeeParams params,
     Percentage gasDropoffMargin_
-  ) internal pure returns (FeeParams) {
+  ) internal pure returns (FeeParams) { unchecked {
     return FeeParams.wrap(
       (FeeParams.unwrap(params) & GAS_DROPOFF_MARGIN_WRITE_MASK) |
       (uint256(Percentage.unwrap(gasDropoffMargin_)) << GAS_DROPOFF_MARGIN_OFFSET)
     );
-  }
+  }}
 
-  function gasTokenPrice(FeeParams params) internal pure returns (uint) {
+  function gasTokenPrice(FeeParams params) internal pure returns (uint) { unchecked {
     return uint80(FeeParams.unwrap(params) >> GAS_TOKEN_PRICE_OFFSET);
-  }
+  }}
 
   function gasTokenPrice(
     FeeParams params,
     uint80 gasTokenPrice_
-  ) internal pure returns (FeeParams) {
+  ) internal pure returns (FeeParams) { unchecked {
     return FeeParams.wrap(
       (FeeParams.unwrap(params) & GAS_TOKEN_PRICE_WRITE_MASK) |
       (uint256(gasTokenPrice_) << GAS_TOKEN_PRICE_OFFSET)
     );
-  }
+  }}
 }
 using FeeParamsLib for FeeParams;
 
@@ -314,7 +314,7 @@ abstract contract SwapLayerRelayingFees is SwapLayerGovernance {
         (gasPriceTimestamp, offset) = updates.asUint32Unchecked(offset);
         (gasPrice,          offset) = updates.asUint32Unchecked(offset);
         curParams = curParams.gasPriceTimestamp(gasPriceTimestamp);
-        curParams = curParams.gasPrice(gasPrice);
+        curParams = curParams.gasPrice(GasPrice.wrap(gasPrice));
       }
       else if (update == FeeUpdate.GasTokenPrice) {
         uint80 gasTokenPrice;
@@ -372,15 +372,15 @@ abstract contract SwapLayerRelayingFees is SwapLayerGovernance {
 
       relayerFee += feeParams.gasDropoffMargin().compound(
         gasDropoff * feeParams.gasTokenPrice()
-      ) / GAS_DROPOFF_TIMES_GAS_TOKEN_PRICE_TO_USDC_DIVISOR;
+      ) / 1 ether;
     }
     
     if (swaps > 0)
       totalGas += UNISWAP_GAS_OVERHEAD + UNISWAP_GAS_PER_SWAP * swaps;
     
     relayerFee += feeParams.gasPriceMargin().compound(
-      totalGas * feeParams.gasPrice() * feeParams.gasTokenPrice()
-    ) / GAS_PRICE_TIMES_GAS_TOKEN_PRICE_TO_USDC_DIVISOR;
+      totalGas * feeParams.gasPrice().from() * feeParams.gasTokenPrice()
+    ) / 1 ether;
 
     return relayerFee;
   }}

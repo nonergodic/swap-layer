@@ -17,7 +17,8 @@ remappings = [
     "cctp-solidity/=modules/circle/",
     "proxy/=modules/proxy/",
     "wormhole/=modules/wormhole/",
-    "liquidity-layer/=modules/liquidity-layer/"
+    "liquidity-layer/=modules/liquidity-layer/",
+    "swap-layer/=src",
 ]
 
 
