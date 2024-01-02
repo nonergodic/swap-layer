@@ -13,11 +13,7 @@ import {PlaceMarketOrder} from "./assets/PlaceMarketOrder.sol";
 import {RedeemFill} from "./assets/RedeemFill.sol";
 import {State} from "./assets/State.sol";
 
-contract TokenRouterImplementation is
-    TokenRouterAdmin,
-    PlaceMarketOrder,
-    RedeemFill
-{
+contract TokenRouterImplementation is TokenRouterAdmin, PlaceMarketOrder, RedeemFill {
     constructor(address token_, address wormholeCircle_) State(token_, wormholeCircle_) {}
 
     function initialize(address owner, address ownerAssistant) external {

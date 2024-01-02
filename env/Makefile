@@ -1,4 +1,4 @@
-.PHONY: build
+.PHONY: build clean
 
 ifndef NETWORK
   $(info No NETWORK specified, defaulting to Mainnet)
@@ -13,6 +13,9 @@ FORK = $(NETWORK) $(CHAIN)
 
 build: node_modules fork_changed
 	npm run build -- $(FORK)
+
+clean:
+	rm -rf node_modules fork_changed testing.env
 
 ifneq ($(FORK), $(shell cat fork_changed 2>/dev/null))
 #if a different chain/network was supplied last time then force an update

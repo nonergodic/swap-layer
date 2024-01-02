@@ -18,7 +18,7 @@ contract Proxy {
     //So we only have delegatecall at our disposal and instead use an initialized flag (stored in
     //  the same storage slot as the implementation address) to prevent invalid re-initialization.
     (bool success, bytes memory revertData) =
-      address(this).delegatecall(abi.encodeWithSignature("checkedUpgrade(bytes)", (data)));
+      logic.delegatecall(abi.encodeWithSignature("checkedUpgrade(bytes)", (data)));
 
     if (!success)
       revert ProxyConstructionFailed(revertData);
