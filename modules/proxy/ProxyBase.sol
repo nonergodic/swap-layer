@@ -15,17 +15,22 @@ abstract contract ProxyBase {
   //address private immutable _logicContract = address(this);
   
   //deliberately not payable since the contract would only be sending funds to itself
-  //signature: f4189c473
+  //selector: f4189c473
   function checkedUpgrade(bytes calldata data) external {
     if (msg.sender != address(this)) {
       if (implementationState().initialized)
         revert InvalidSender();
       
-      implementationState().initialized = true;
       _proxyConstructor(data);
     }
     else
       _contractUpgrade(data);
+    
+    //If we upgrade from an old OpenZeppelin proxy, then initialized will not have been set to true
+    //  even though the constructor has been called, so we simply manually set it here in all cases.
+    //This is slightly gas inefficient but better to be safe than sorry for rare use cases like
+    //  contract upgrades.
+    implementationState().initialized = true;
   }
 
   function _upgradeTo(address newImplementation, bytes memory data) internal {

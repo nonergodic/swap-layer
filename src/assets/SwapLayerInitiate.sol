@@ -20,12 +20,13 @@ error InsufficientMsgValue();
 error InsufficientInputAmount(uint256 input, uint256 minimum);
 error InvalidLength(uint256 received, uint256 expected);
 error ExceedsMaxRelayingFee(uint256 fee, uint256 maximum);
+error ChainNotSupported(uint16 chain);
 
 abstract contract SwapLayerInitiate is SwapLayerRelayingFees {
   using BytesParsing for bytes;
   using SafeERC20 for IERC20;
 
-  //signature: 22bf2bd8
+  //selector: 22bf2bd8
   function initiate(
     uint16 targetChain,
     bytes32 recipient, //= redeemer in case of a payload
@@ -72,6 +73,9 @@ abstract contract SwapLayerInitiate is SwapLayerRelayingFees {
 
     uint usdcAmount = _acquireUsdc(isExactIn, fastTransferFee + relayingFee, mos, params);
     bytes32 endpoint = _getEndpoint(targetChain);
+    if (endpoint == bytes32(0))
+      revert ChainNotSupported(targetChain);
+
     (bytes memory outputSwap, ) = params.slice(
       mos.output.offset - MODE_SIZE,
       mos.output.size + MODE_SIZE
@@ -79,24 +83,25 @@ abstract contract SwapLayerInitiate is SwapLayerRelayingFees {
     
     bytes memory swapMessage = encodeSwapMessage(recipient, redeemPayload, outputSwap);
     if (mos.fastTransfer.mode == FastTransferMode.Enabled) {
-      (uint64 vaaSequence, uint64 cctpSequence) = _liquidityLayer.placeFastMarketOrder(
-        usdcAmount,
-        targetChain,
-        endpoint,
-        swapMessage,
-        fastTransferFee,
-        fastTransferDeadline
-      );
-      return abi.encode(vaaSequence, cctpSequence);
+      (uint64 vaaSequence, uint64 cctpSequence, uint64 cctpNonce) =
+        _liquidityLayer.placeFastMarketOrder(
+          uint128(usdcAmount), //TODO
+          targetChain,
+          endpoint,
+          swapMessage,
+          uint128(fastTransferFee), //TODO
+          fastTransferDeadline
+        );
+      return abi.encode(usdcAmount, vaaSequence, cctpSequence, cctpNonce);
     }
     else {
-      uint64 sequence = _liquidityLayer.placeMarketOrder(
-        usdcAmount,
+      (uint64 sequence, uint64 cctpNonce) = _liquidityLayer.placeMarketOrder(
+        uint128(usdcAmount), //TODO
         targetChain,
         endpoint,
         swapMessage
       );
-      return abi.encode(sequence);
+      return abi.encode(usdcAmount, sequence, cctpNonce);
     }
   }}
 
@@ -141,17 +146,14 @@ abstract contract SwapLayerInitiate is SwapLayerRelayingFees {
         offset = _acquireInputTokens(inputAmount, inputToken, params, offset);
       }
 
-      uint outputAmount;
-      (outputAmount, offset) = params.asUint128Unchecked(offset);
+      bool approveCheck; //gas optimization
+      (approveCheck, offset) = params.asBoolUnchecked(offset);
+      (uint outputAmount, uint256 deadline, bytes memory path, ) =
+         parseSwapParams(inputToken, _usdc, params, offset);
 
       //adjust outputAmount to ensure that the received usdc amount on the target chain is at least
       //  the specified outputAmount
       outputAmount += totalFee;
-
-      bool approveCheck; //gas optimization
-      (approveCheck, offset) = params.asBoolUnchecked(offset);
-      (uint256 deadline, bytes memory path, ) =
-         parseSwapParams(inputToken, _usdc, params, offset);
 
       uint inOutAmount = _swap(
         isExactIn,

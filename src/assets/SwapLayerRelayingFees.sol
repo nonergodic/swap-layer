@@ -283,7 +283,7 @@ abstract contract SwapLayerRelayingFees is SwapLayerGovernance {
   //   return uniswapGasTokenIsFirst_ ? uniswapPrice : BIT256 / uniswapPrice;
   // }
 
-  //signature: aa327791
+  //selector: aa327791
   function updateFeeParams(bytes memory updates) external onlyAssistantOrOwner {
     _updateFeeParams(updates);
   }

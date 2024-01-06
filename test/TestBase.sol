@@ -3,20 +3,21 @@
 pragma solidity ^0.8.23;
 
 import "forge-std/Test.sol";
-import "forge-std/console.sol";
 
 import { ERC1967Proxy } from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
+import { IWormhole } from "wormhole/IWormhole.sol";
 import { fromUniversalAddress } from "wormhole/Utils.sol";
-import { ICircleIntegration } from "wormhole/ICircleIntegration.sol";
 import { SigningWormholeSimulator } from "wormhole/WormholeSimulator.sol";
-import { CircleSimulator } from "cctp-solidity/CircleSimulator.sol";
-import { ITokenRouter } from "liquidity-layer/ITokenRouter.sol";
+import { CircleSimulator } from "cctp/CircleSimulator.sol";
+import { ITokenMessenger } from "cctp/ITokenMessenger.sol";
 import { Proxy } from "proxy/Proxy.sol";
 import { IPermit2 } from "permit2/IPermit2.sol";
 import { ISwapRouter } from "uniswap/ISwapRouter.sol";
 
+import { ITokenRouter } from "liquidity-layer/ITokenRouter.sol";
+import { FastTransferParameters } from "liquidity-layer/ITokenRouterTypes.sol";
 import { TokenRouterImplementation }
   from "./liquidity-layer/TokenRouter/TokenRouterImplementation.sol";
 
@@ -33,13 +34,22 @@ using GasDropoffLib for GasDropoff;
 contract SwapLayerTestBase is Test {
   using FeeParamsLib for FeeParams;
 
-  IERC20 immutable usdc;
-  //IWormhole immutable wormhole;
-  ICircleIntegration immutable circleIntegration;
-  uint16 immutable chainId;
-  uint16 immutable foreignChainId;
-  bytes32 constant foreignLiquidityLayer = bytes32(uint256(uint160(address(1))));
-  bytes32 constant foreignSwapLayer = bytes32(uint256(uint160(address(2))));
+  bytes32 constant FOREIGN_LIQUIDITY_LAYER        = bytes32(uint256(uint160(address(1))));
+  bytes32 constant FOREIGN_SWAP_LAYER             = bytes32(uint256(uint160(address(2))));
+  bytes32 constant MATCHING_ENGINE_ADDRESS        = bytes32(uint256(uint160(address(3))));
+  uint16  constant MATCHING_ENGINE_CHAIN          = 0xffff;
+  uint32  constant MATCHING_ENGINE_DOMAIN         = 0xffffffff;
+  uint128 constant FAST_TRANSFER_MAX_AMOUNT       = 1e9;
+  uint128 constant FAST_TRANSFER_BASE_FEE         = 1e6;
+  uint128 constant FAST_TRANSFER_INIT_AUCTION_FEE = 1e6;
+
+  IWormhole immutable wormhole;
+  IERC20  immutable usdc;
+  address immutable foreignUsdc;
+  address immutable cctpTokenMessenger;
+  uint16  immutable chainId;
+  uint16  immutable foreignChainId;
+  uint32  immutable foreignCircleDomain;
 
   address immutable signer;
   uint256 immutable signerSecret;
@@ -55,10 +65,13 @@ contract SwapLayerTestBase is Test {
   SwapLayer swapLayer;
 
   constructor() {
-    usdc              = IERC20(vm.envAddress("TEST_USDC_ADDRESS"));
-    circleIntegration = ICircleIntegration(vm.envAddress("TEST_CIRCLE_INTEGRATION_ADDRESS"));
-    chainId           = circleIntegration.chainId();
-    foreignChainId    = uint16(vm.envUint("TEST_FOREIGN_CHAIN_ID"));
+    wormhole            = IWormhole(vm.envAddress("TEST_WORMHOLE_ADDRESS"));
+    usdc                = IERC20(vm.envAddress("TEST_USDC_ADDRESS"));
+    foreignUsdc         = vm.envAddress("TEST_FOREIGN_USDC_ADDRESS");
+    cctpTokenMessenger  = vm.envAddress("TEST_CCTP_TOKEN_MESSENGER_ADDRESS");
+    chainId             = wormhole.chainId();
+    foreignChainId      = uint16(vm.envUint("TEST_FOREIGN_CHAIN_ID"));
+    foreignCircleDomain = uint32(vm.envUint("TEST_FOREIGN_CIRCLE_DOMAIN"));
 
     (signer, signerSecret) = makeAddrAndKey("signer");
     llOwner                = makeAddr("llOwner");
@@ -70,19 +83,34 @@ contract SwapLayerTestBase is Test {
   function deployBase() public {
     address llAssistant = address(0);
     liquidityLayer = ITokenRouter(address(new ERC1967Proxy(
-      address(new TokenRouterImplementation(address(usdc), address(circleIntegration))),
+      address(new TokenRouterImplementation(
+        address(usdc),
+        address(wormhole),
+        cctpTokenMessenger,
+        MATCHING_ENGINE_CHAIN,
+        MATCHING_ENGINE_ADDRESS,
+        MATCHING_ENGINE_DOMAIN
+      )),
       abi.encodeCall(TokenRouterImplementation.initialize, (llOwner, llAssistant))
     )));
 
-    vm.prank(llOwner);
-    TokenRouterImplementation(address(liquidityLayer))
-      .addRouterEndpoint(foreignChainId, foreignLiquidityLayer);
+    vm.startPrank(llOwner);
+    liquidityLayer.setCctpAllowance(type(uint256).max);
+    liquidityLayer.addRouterEndpoint(foreignChainId, FOREIGN_LIQUIDITY_LAYER, foreignCircleDomain);
+    liquidityLayer.updateFastTransferParameters(
+      FastTransferParameters({
+        enabled: true,
+        maxAmount: FAST_TRANSFER_MAX_AMOUNT,
+        baseFee: FAST_TRANSFER_BASE_FEE,
+        initAuctionFee: FAST_TRANSFER_INIT_AUCTION_FEE
+      })
+    );
+    vm.stopPrank();
 
-    wormholeSimulator = new SigningWormholeSimulator(circleIntegration.wormhole(), signerSecret);
+    wormholeSimulator = new SigningWormholeSimulator(wormhole, signerSecret);
     circleSimulator = new CircleSimulator(
       signerSecret,
-      address(circleIntegration.circleTransmitter()),
-      vm.envAddress("TEST_FOREIGN_USDC_ADDRESS")
+      address(ITokenMessenger(cctpTokenMessenger).localMessageTransmitter())
     );
     circleSimulator.setupCircleAttester();
 
@@ -102,7 +130,14 @@ contract SwapLayerTestBase is Test {
         ISwapRouter(vm.envAddress("TEST_UNISWAP_V3_ROUTER_ADDRESS")),
         liquidityLayer
       )),
-      abi.encodePacked(owner, assistant, feeRecipient, foreignChainId, foreignSwapLayer, feeParams)
+      abi.encodePacked(
+        owner,
+        assistant,
+        feeRecipient,
+        foreignChainId,
+        FOREIGN_SWAP_LAYER,
+        feeParams
+      )
     ))));
   }
 }

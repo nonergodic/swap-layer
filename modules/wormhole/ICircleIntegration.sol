@@ -3,9 +3,9 @@
 pragma solidity ^0.8.19;
 
 import {IWormhole} from "./IWormhole.sol";
-import {ICircleBridge} from "cctp-solidity/ICircleBridge.sol";
-import {IMessageTransmitter} from "cctp-solidity/IMessageTransmitter.sol";
-import {ITokenMinter} from "cctp-solidity/ITokenMinter.sol";
+import {ICircleBridge} from "cctp/ICircleBridge.sol";
+import {IMessageTransmitter} from "cctp/IMessageTransmitter.sol";
+import {ITokenMinter} from "cctp/ITokenMinter.sol";
 
 interface ICircleIntegration {
 	struct TransferParameters {

@@ -8,7 +8,7 @@ contract UpgradeTester is ProxyBase {
   event Constructed(bytes data, uint256 value);
   event Upgraded(bytes data);
 
-  function upgradeTo(address newImplementation, bytes memory data) external {
+  function upgradeTo(address newImplementation, bytes calldata data) external {
     _upgradeTo(newImplementation, data);
   }
 

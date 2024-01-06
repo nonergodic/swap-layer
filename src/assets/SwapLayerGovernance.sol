@@ -50,7 +50,7 @@ abstract contract SwapLayerGovernance is SwapLayerBase, ProxyBase {
     _;
   }
 
-  //signature: d78b3c6e
+  //selector: d78b3c6e
   function executeGovernanceActions(bytes calldata actions) external {
     GovernanceState storage state = governanceState();
     if (msg.sender != state.owner) {
@@ -97,6 +97,18 @@ abstract contract SwapLayerGovernance is SwapLayerBase, ProxyBase {
     state.owner = owner;
     state.assistant = assistant;
     state.feeRecipient = feeRecipient;
+  }
+
+  function _getOwner() internal view returns (address) {
+    return governanceState().owner;
+  }
+
+  function _getPendingOwner() internal view returns (address) {
+    return governanceState().pendingOwner;
+  }
+
+  function _getAssistant() internal view returns (address) {
+    return governanceState().assistant;
   }
 
   function _getFeeRecipient() internal view returns (address) {

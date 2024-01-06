@@ -10,11 +10,11 @@ import { GasDropoff, GasDropoffLib } from "./GasDropoff.sol";
 using BytesParsing for bytes;
 using GasDropoffLib for GasDropoff;
 
-uint constant INPUT_AMOUNT_SIZE = 16;
 uint constant MODE_SIZE = 1;
 uint constant BOOL_SIZE = 1;
 uint constant ADDRESS_SIZE = 20;
 uint constant UNI_FEE_SIZE = 3;
+uint constant SWAP_PARAM_AMOUNT_SIZE = 16;
 uint constant SWAP_PARAM_DEADLINE_SIZE = 4;
 
 uint constant UNI_PATH_ELEMENT_SIZE = ADDRESS_SIZE + UNI_FEE_SIZE;
@@ -47,10 +47,12 @@ function parseSwapParams(
   IERC20 outputToken,
   bytes memory params,
   uint offset
-) pure returns (uint256, bytes memory, uint) {
+) pure returns (uint, uint256, bytes memory, uint) { unchecked {
+  uint limitAmount;
   uint256 deadline;
   uint24 legFirstFee;
   uint pathLength; //total number of swaps = pathLength + 1
+  (limitAmount,  offset) = params.asUint128Unchecked(offset);
   (deadline,     offset) = params.asUint32Unchecked(offset);
   (legFirstFee,  offset) = params.asUint24Unchecked(offset);
   (pathLength,   offset) = params.asUint8Unchecked(offset);
@@ -66,15 +68,15 @@ function parseSwapParams(
     address(outputToken)
   );
 
-  return (deadline, path, offset);
-}
+  return (limitAmount, deadline, path, offset);
+}}
 
 //total number of swaps = pathLength + 1
 function parseSwapLength(
   bytes memory params,
   uint offset
 ) pure returns (uint /*pathLength*/, uint) { unchecked {
-  offset += SWAP_PARAM_DEADLINE_SIZE + UNI_FEE_SIZE;
+  offset += SWAP_PARAM_AMOUNT_SIZE + SWAP_PARAM_DEADLINE_SIZE + UNI_FEE_SIZE;
   return params.asUint8Unchecked(offset);
 }}
 

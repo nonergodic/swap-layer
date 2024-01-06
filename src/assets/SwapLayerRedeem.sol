@@ -6,7 +6,7 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 import { BytesParsing } from "wormhole/WormholeBytesParsing.sol";
-import { OrderResponse, RedeemedFill } from "liquidity-layer/ITokenRouter.sol";
+import { OrderResponse as Attestations, RedeemedFill } from "liquidity-layer/ITokenRouter.sol";
 
 import "./SwapLayerGovernance.sol";
 import "./Params.sol";
@@ -16,7 +16,7 @@ import { GasDropoff, GasDropoffLib } from "./GasDropoff.sol";
 error SenderNotRecipient(address sender, address recipient);
 error InvalidMsgValue(uint256 value, uint256 expected);
 
-abstract contract SwapLayerComplete is SwapLayerGovernance {
+abstract contract SwapLayerRedeem is SwapLayerGovernance {
   using BytesParsing for bytes;
   using SafeERC20 for IERC20;
   using GasDropoffLib for GasDropoff;
@@ -41,12 +41,12 @@ abstract contract SwapLayerComplete is SwapLayerGovernance {
   //    but the transaction will fail if the swap fails due to an insufficient allowance
   //    this allows the relayer to save gas while protecting the user from malice/negligence
 
-  //signature: 838dd05b
-  function complete(
-    OrderResponse calldata response,
-    bytes memory params
+  //selector: 604009a9
+  function redeem(
+    bytes memory params,
+    Attestations calldata attestations
   ) external payable returns (bytes memory) {
-    RedeemedFill memory fill = _liquidityLayer.redeemFill(response);
+    RedeemedFill memory fill = _liquidityLayer.redeemFill(attestations);
     SwapMessageStructure memory sms = parseSwapMessageStructure(fill.message);
     
     (bool overrideMsg, SwapFailurePolicy failurePolicy) =
@@ -113,11 +113,8 @@ abstract contract SwapLayerComplete is SwapLayerGovernance {
       }
       else
         approveCheck = true;
-
-      uint minOutputAmount;
-      (minOutputAmount, offset) = swapParams.asUint128Unchecked(offset);
       
-      (uint256 deadline, bytes memory path, ) =
+      (uint minOutputAmount, uint256 deadline, bytes memory path, ) =
         parseSwapParams(_usdc, outputToken, swapParams, offset);
 
       outputAmount = _swap(

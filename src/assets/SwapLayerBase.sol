@@ -3,11 +3,11 @@
 pragma solidity ^0.8.23;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 import { IPermit2 } from "permit2/IPermit2.sol";
 import { ISwapRouter } from "uniswap/ISwapRouter.sol";
 import { IWormhole } from "wormhole/IWormhole.sol";
-import { ICircleIntegration } from "wormhole/ICircleIntegration.sol";
 import { IWETH } from "wormhole/IWETH.sol";
 import { ITokenRouter } from "liquidity-layer/ITokenRouter.sol";
 
@@ -40,6 +40,7 @@ error InvalidEndpoint();
 
 abstract contract SwapLayerBase {
   using BytesParsing for bytes;
+  using SafeERC20 for IERC20;
 
   IWormhole    internal immutable _wormhole;
   IERC20       internal immutable _usdc;
@@ -54,7 +55,7 @@ abstract contract SwapLayerBase {
     ISwapRouter  uniV3Router,
     ITokenRouter liquidityLayer
   ) {
-    _wormhole       = ICircleIntegration(liquidityLayer.wormholeCctp()).wormhole();
+    _wormhole       = liquidityLayer.wormhole();
     _usdc           = IERC20(liquidityLayer.orderToken());
     _weth           = IWETH(uniV3Router.WETH9());
     _permit2        = permit2;
@@ -84,7 +85,7 @@ abstract contract SwapLayerBase {
   }
 
   function _maxApprove(IERC20 token, address spender) internal {
-    token.approve(spender, type(uint256).max);
+    token.forceApprove(spender, type(uint256).max);
   }
 
   //returns the consumed input amount on exact out swaps and the output amount on exact in swaps
@@ -136,12 +137,15 @@ abstract contract SwapLayerBase {
   ) private pure returns (uint) {
     if (failurePolicy == SwapFailurePolicy.Revert)
       revert(reason);
-    if (failurePolicy == SwapFailurePolicy.RevertOnInsufficientAllowance &&
-      bytes(reason).length == UNIV3_TRANSFER_FROM_FAILED_LENGTH) {
-        (bytes3 reasonValue, ) = bytes(reason).asBytes3Unchecked(0);
-        if (reasonValue == UNIV3_TRANSFER_FROM_FAILED_VALUE)
-          revert(reason);
-      }
+    
+    if (
+      failurePolicy == SwapFailurePolicy.RevertOnInsufficientAllowance &&
+      bytes(reason).length == UNIV3_TRANSFER_FROM_FAILED_LENGTH
+    ) {
+      (bytes3 reasonValue, ) = bytes(reason).asBytes3Unchecked(0);
+      if (reasonValue == UNIV3_TRANSFER_FROM_FAILED_VALUE)
+        revert(reason);
+    }
     
     return 0;
   }

@@ -186,7 +186,7 @@ function parseParamBaseStructure(
     (inputTokenType, offset) = parseIoToken(params, offset);
     paramBlockOffset = offset;
     if (inputTokenType == IoToken.Usdc) {
-      offset += INPUT_AMOUNT_SIZE;
+      offset += SWAP_PARAM_AMOUNT_SIZE;
       offset = skipAcquire(params, offset);
     }
     else if (inputTokenType == IoToken.Gas) {
@@ -195,7 +195,7 @@ function parseParamBaseStructure(
     }
     else if (inputTokenType == IoToken.Erc20) {
       offset = skipAcquire(params, offset);
-      offset += ADDRESS_SIZE + INPUT_AMOUNT_SIZE + BOOL_SIZE;
+      offset += ADDRESS_SIZE + SWAP_PARAM_AMOUNT_SIZE + BOOL_SIZE;
       offset = skipSwap(params, offset);
     }
 
@@ -204,21 +204,17 @@ function parseParamBaseStructure(
   params.checkLength(offset);
 }}
 
+//gas optimization - cheaper than if else branch
+uint constant _ACQUIRE_MODE_SIZES_ARRAY =
+  PERMIT_SIZE << 8 + PERMIT2_PERMIT_SIZE << 16 + PERMIT2_TRANSFER_SIZE << 24;
 function skipAcquire(
   bytes memory params,
   uint offset
 ) pure returns (uint) { unchecked {
-  uint8 _acquireMode;
-  (_acquireMode, offset) = params.asUint8Unchecked(offset);
-  AcquireMode acquireMode = AcquireMode(_acquireMode);
-  if (acquireMode == AcquireMode.Preapproved)
-    offset += PERMIT_SIZE;
-  else if (acquireMode == AcquireMode.Permit)
-    offset += PERMIT2_PERMIT_SIZE;
-  else if (acquireMode == AcquireMode.Permit2Permit)
-    offset += PERMIT2_TRANSFER_SIZE;
-  
-  return offset;
+  uint8 acquireMode_;
+  (acquireMode_, offset) = params.asUint8Unchecked(offset);
+  AcquireMode acquireMode = AcquireMode(acquireMode_); //checks that the enum value is valid
+  return offset + uint8(_ACQUIRE_MODE_SIZES_ARRAY >> (uint(acquireMode) * 8));
 }}
 
 function parsePermit(

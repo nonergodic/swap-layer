@@ -2,7 +2,7 @@
 
 pragma solidity ^0.8.19;
 
-import {IAdmin} from "../interfaces/IAdmin.sol";
+import {IAdmin} from "liquidity-layer/IAdmin.sol";
 
 import {ERC1967Utils} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Utils.sol";
 

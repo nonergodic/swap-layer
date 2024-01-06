@@ -13,13 +13,16 @@ import { BytesParsing } from "wormhole/WormholeBytesParsing.sol";
 import "./assets/SwapLayerBase.sol";
 import "./assets/SwapLayerGovernance.sol";
 import "./assets/SwapLayerRelayingFees.sol";
+import "./assets/SwapLayerBatchGet.sol";
 import "./assets/SwapLayerInitiate.sol";
-import "./assets/SwapLayerComplete.sol";
+import "./assets/SwapLayerRedeem.sol";
 
-contract SwapLayer is
-  SwapLayerComplete,
-  SwapLayerInitiate
-{
+//Inheritance diagram:
+//SwapLayer -> SwapLayerBatchGet -> SwapLayerRelayingFees -> SwapLayerGovernance -> SwapLayerBase
+//        \\-> SwapLayerInitiate ---^                        ^                  \-> ProxyBase
+//         \-> SwapLayerRedeem   ---------------------------/
+
+contract SwapLayer is SwapLayerBatchGet, SwapLayerInitiate, SwapLayerRedeem {
   using BytesParsing for bytes;
 
   //constructor of the logic contract setting immutables
@@ -52,7 +55,10 @@ contract SwapLayer is
       _setFeeParams(chain, FeeParamsLib.checkedWrap(feeParams));
     }
     data.checkLength(offset);
+
+    _maxApprove(_usdc, address(_liquidityLayer));
   }
 
+  //to support weth.withdraw
   receive() external payable {}
 }

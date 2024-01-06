@@ -3,25 +3,27 @@ TEST_FORK = Mainnet Ethereum
 
 #include (and build if necessary) env/testing.env if we're running tests
 ifneq (,$(filter test, $(MAKECMDGOALS)))
--include env/testing.env
+#hacky:
+_ := $(shell $(MAKE) -C env build NETWORK=$(word 1,${TEST_FORK}) CHAIN=$(word 2,${TEST_FORK}))
+include env/testing.env
 export
-unexport TEST_FORK
-env/testing.env:
-	$(MAKE) -C env build NETWORK=$(word 1,${TEST_FORK}) CHAIN=$(word 2,${TEST_FORK})
+unexport TEST_FORK	
 endif
 
 .DEFAULT_GOAL = build
-.PHONY: build test clean
+.PHONY: build test clean dependencies
 
-build: lib/forge-std lib/openzeppelin-contracts
+build: dependencies
 	forge build
 
-test: build
-	forge test --fork-url $$TEST_RPC -vvvvv
+test: dependencies
+	forge test --fork-url $$TEST_RPC -vvvv
 
 clean:
 	forge clean
 	@$(MAKE) -C env clean
+
+dependencies: lib/forge-std lib/openzeppelin-contracts
 
 #TODO nail down version
 lib/forge-std:
