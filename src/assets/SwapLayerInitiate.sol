@@ -11,7 +11,6 @@ import { ISignatureTransfer } from "permit2/ISignatureTransfer.sol";
 
 import { BytesParsing } from "wormhole/WormholeBytesParsing.sol";
 
-import { SwapFailurePolicy } from "./SwapLayerBase.sol";
 import "./SwapLayerRelayingFees.sol";
 import "./InitiateParams.sol";
 import { encodeSwapMessage, encodeRelayParams } from "./Message.sol";
@@ -129,6 +128,7 @@ abstract contract SwapLayerInitiate is SwapLayerRelayingFees {
       //we received something else than usdc so we'll have to perform at least one swap
       uint inputAmount;
       IERC20 inputToken;
+      bool approveCheck = false; //gas optimization
       if (inputTokenType == IoToken.Gas) {
         uint wormholeFee = _wormhole.messageFee();
         if (mos.fastTransfer.mode == FastTransferMode.Enabled)
@@ -144,10 +144,9 @@ abstract contract SwapLayerInitiate is SwapLayerRelayingFees {
         (inputToken,  offset) = parseIERC20(params, offset);
         (inputAmount, offset) = params.asUint128Unchecked(offset);
         offset = _acquireInputTokens(inputAmount, inputToken, params, offset);
+        (approveCheck, offset) = params.asBoolUnchecked(offset);
       }
 
-      bool approveCheck; //gas optimization
-      (approveCheck, offset) = params.asBoolUnchecked(offset);
       (uint outputAmount, uint256 deadline, bytes memory path, ) =
          parseSwapParams(inputToken, _usdc, params, offset);
 
@@ -160,7 +159,7 @@ abstract contract SwapLayerInitiate is SwapLayerRelayingFees {
         inputAmount,
         outputAmount,
         inputToken,
-        SwapFailurePolicy.Revert,
+        true, //revert on failure
         approveCheck,
         deadline,
         path

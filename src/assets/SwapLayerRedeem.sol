@@ -27,19 +27,13 @@ abstract contract SwapLayerRedeem is SwapLayerGovernance {
   //      1 byte   input token type
   //        0: USDC
   //        1: GAS
-  //          1 byte   approveCheck
   //          swap struct
   //        2: ERC20
-  //          1 byte   approveCheck
   //         20 bytes  token address
   //          swap struct
   //    if overridden, a failed swap for any reason will revert the transaction (just like initiate)
-  //  redeemMode payload:
+  //  redeemMode payload/relay:
   //    no extra params allowed
-  //  redeemMode relay:
-  //    1 byte   approveCheck
-  //    but the transaction will fail if the swap fails due to an insufficient allowance
-  //    this allows the relayer to save gas while protecting the user from malice/negligence
 
   //selector: 604009a9
   function redeem(
@@ -49,16 +43,8 @@ abstract contract SwapLayerRedeem is SwapLayerGovernance {
     RedeemedFill memory fill = _liquidityLayer.redeemFill(attestations);
     SwapMessageStructure memory sms = parseSwapMessageStructure(fill.message);
     
-    (bool overrideMsg, SwapFailurePolicy failurePolicy) =
-      sms.redeemMode == RedeemMode.Direct
-      ? msg.sender == sms.recipient && params.length > 0
-        ? (true, SwapFailurePolicy.Revert)
-        : (false, SwapFailurePolicy.Return)
-      : (false,
-          sms.redeemMode == RedeemMode.Relay
-          ? SwapFailurePolicy.RevertOnInsufficientAllowance
-          : SwapFailurePolicy.Return
-        );
+    bool overrideMsg =
+      sms.redeemMode == RedeemMode.Direct && msg.sender == sms.recipient && params.length > 0;
     
     uint gasDropoff = 0;
     uint usdcAmount;
@@ -68,6 +54,9 @@ abstract contract SwapLayerRedeem is SwapLayerGovernance {
       _usdc.safeTransfer(_getFeeRecipient(), relayingFee);
       gasDropoff = gasDropoff_.from();
       usdcAmount = fill.amount - relayingFee;
+
+      //no extra params when relaying
+      params.checkLength(0);
     }
     else {
       if (sms.redeemMode == RedeemMode.Payload) {
@@ -102,28 +91,17 @@ abstract contract SwapLayerRedeem is SwapLayerGovernance {
         outputToken = _weth;
       else
         (outputToken, offset) = parseIERC20(swapParams, offset);
-
-      bool approveCheck;
-      if (overrideMsg)
-        (approveCheck, offset) = swapParams.asBoolUnchecked(offset);
-      else if (sms.redeemMode == RedeemMode.Relay && params.length > 0) {
-        uint paramOffset = 0;
-        (approveCheck, paramOffset) = params.asBoolUnchecked(paramOffset); //params!
-        params.checkLength(paramOffset);
-      }
-      else
-        approveCheck = true;
       
       (uint minOutputAmount, uint256 deadline, bytes memory path, ) =
         parseSwapParams(_usdc, outputToken, swapParams, offset);
 
       outputAmount = _swap(
-        true,
+        true, //only exact input swaps on redeem
         usdcAmount,
         minOutputAmount,
         _usdc,
-        failurePolicy,
-        approveCheck,
+        overrideMsg, //revert on failure if user requested a manual swap
+        false, //always skip approve check, we have max approve with the router for usdc
         deadline,
         path
       );

@@ -237,7 +237,7 @@ function feeParamsState() pure returns (FeeParamsState storage state) {
 error MaxGasDropoffExceeded(uint requested, uint maximum);
 
 //TODO: do we actually want/need this?
-event FeeParamsUpdated(uint16 indexed updateChain, FeeParams params);
+event FeeParamsUpdated(uint16 indexed chainId, FeeParams params);
 
 enum FeeUpdate {
   GasPrice,
@@ -284,7 +284,7 @@ abstract contract SwapLayerRelayingFees is SwapLayerGovernance {
   // }
 
   //selector: aa327791
-  function updateFeeParams(bytes memory updates) external onlyAssistantOrOwner {
+  function updateFeeParams(bytes memory updates) external onlyAssistantOrUp {
     _updateFeeParams(updates);
   }
 

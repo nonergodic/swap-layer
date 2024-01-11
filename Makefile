@@ -18,6 +18,7 @@ build: dependencies
 
 test: dependencies
 	forge test --fork-url $$TEST_RPC -vvvv
+#--match-test EthSwap
 
 clean:
 	forge clean
